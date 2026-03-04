@@ -128,3 +128,6 @@ javascript/coverage/
 tmp/
 temp/
 .tmp/
+
+# ----- Local Learning Notes (not for publication) -----
+learning/

@@ -54,15 +54,61 @@ When you build an MCP server, a LangChain tool, or any agent integration on this
 
 ---
 
-## Install
+## Getting Started
+
+### 1. Create an AgentSecrets account
+
+[Sign up at github.com/The-17/agentsecrets](https://github.com/The-17/agentsecrets)
+
+### 2. Install the CLI
+
+The CLI is required. It manages keychain access, auth, and workspace context —
+everything the SDK deliberately doesn't touch.
+
+```bash
+# Homebrew (macOS / Linux):
+brew install The-17/tap/agentsecrets
+
+# npm (all platforms):
+npm install -g @the-17/agentsecrets
+
+# pip (all platforms):
+pip install agentsecrets
+
+# Go:
+go install github.com/The-17/agentsecrets/cmd/agentsecrets@latest
+```
+
+### 3. Log in and set up your first project
+
+```bash
+agentsecrets init          # creates your account and encryption keys
+agentsecrets project create my-project
+agentsecrets secrets set MY_API_KEY=your-value-here
+```
+
+### 4. Install the SDK
 
 ```bash
 pip install agentsecrets-sdk
 ```
 
-**Requires:** [AgentSecrets](https://github.com/The-17/agentsecrets) installed locally. The SDK connects to the running AgentSecrets proxy. For CI/CD and automated environments, set `AGENTSECRETS_TOKEN` instead.
+### 5. Make your first zero-knowledge API call
 
----
+```python
+from agentsecrets import AgentSecrets
+
+client = AgentSecrets()
+response = client.call(
+    "https://api.stripe.com/v1/balance",
+    bearer="MY_API_KEY"
+)
+print(response.json())
+```
+
+> **If the CLI is not installed**, the SDK raises `CLINotFound` with a direct link
+> to the install page. **If the proxy is not running**, it raises `AgentSecretsNotRunning`
+> with the exact command to fix it. Errors are always actionable.
 
 ## Making Authenticated API Calls
 
