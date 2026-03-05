@@ -2,40 +2,89 @@
 
 The official Python client for [AgentSecrets](https://github.com/The-17/agentsecrets) — zero-knowledge secrets infrastructure for AI agents.
 
-## Prerequisites
+```python
+from agentsecrets import AgentSecrets
 
-Everyone who uses this SDK needs:
+client = AgentSecrets()
 
-1. **An AgentSecrets account** — [sign up here](https://github.com/The-17/agentsecrets)
-2. **The AgentSecrets CLI installed** on their machine
-
-Install the CLI:
-```bash
-pip install agentsecrets
+response = client.call(
+    "https://api.stripe.com/v1/balance",
+    bearer="STRIPE_KEY"
+)
 ```
 
-> Other install methods (Homebrew, npm, Go) are listed in the
-> [root README](../README.md#getting-started).
+You pass a key name. The SDK resolves the value from the OS keychain, injects it at the transport layer, and returns only the API response. The value never enters your Python process. Not as a variable. Not as a return value. Not in any log.
 
-Log in and set up a project:
+---
+
+## Why Build on This
+
+Every other approach to credential management puts the value somewhere your code can reach it:
+
+```python
+# Every other approach
+key = os.getenv("STRIPE_KEY")        # value is in your process memory
+key = vault.get("STRIPE_KEY")        # value is in your process memory
+key = keyring.get_password(...)      # value is in your process memory
+                                      # prompt injection can reach it
+                                      # malicious plugin can reach it
+                                      # anyone using your tool inherits the risk
+```
+
+The AgentSecrets SDK has no `get()`. The only way to use a credential is to make the call or spawn the process. The value resolves inside the proxy and never crosses into your code.
+
+When you build a tool, an MCP server, or an agent integration on this SDK, that guarantee extends to your users automatically. They get zero-knowledge credential management without knowing AgentSecrets exists.
+
+---
+
+## Prerequisites
+
+Everyone who uses a tool built on this SDK needs:
+
+1. **An AgentSecrets account** — [sign up here](https://github.com/The-17/agentsecrets)
+2. **The AgentSecrets CLI** installed and running
+
+Install the CLI:
+
 ```bash
-agentsecrets init          # creates your account and encryption keys
+# Homebrew (recommended)
+brew install The-17/tap/agentsecrets
+
+# pip
+pip install agentsecrets-cli
+
+# npm
+npm install -g @the-17/agentsecrets
+```
+
+Set up a project:
+
+```bash
+agentsecrets init
 agentsecrets project create my-project
-agentsecrets secrets set MY_API_KEY=your-value-here
+agentsecrets secrets set STRIPE_KEY=sk_live_...
+agentsecrets workspace allowlist add api.stripe.com
+agentsecrets proxy start
 ```
 
 > **Why is the CLI required?**
-> The CLI manages everything your code should never touch: keychain access, auth
-> token refresh, and workspace context. The SDK delegates all of that to the CLI
-> so that credential values never enter your Python process.
+> The CLI manages everything your code should never touch — keychain access, session
+> tokens, workspace context, and proxy lifecycle. The SDK delegates all credential
+> operations to the running proxy so that values never enter your Python process.
+
+For CI/CD and automated environments where the CLI cannot run interactively, set `AGENTSECRETS_TOKEN` instead — see [CI/CD and Production](#cicd-and-production).
+
+---
 
 ## Install
 
 ```bash
-pip install agentsecrets-sdk
+pip install agentsecrets
 ```
 
-Requires Python 3.10+ and the [AgentSecrets CLI](https://github.com/The-17/agentsecrets) installed.
+Requires Python 3.10+.
+
+---
 
 ## Quick Start
 
@@ -44,73 +93,378 @@ from agentsecrets import AgentSecrets
 
 client = AgentSecrets()
 
-# Make an authenticated API call — the SDK never sees the credential value.
 response = client.call(
     "https://api.stripe.com/v1/charges",
     method="POST",
-    bearer="STRIPE_SECRET_KEY",
+    bearer="STRIPE_KEY",
     body={"amount": 1000, "currency": "usd", "source": "tok_visa"},
 )
 print(response.json())
 ```
 
-## Auth Styles
+---
 
-| Style | SDK Parameter | Proxy Header |
-|-------|--------------|--------------|
-| Bearer | `bearer="KEY"` | `X-AS-Inject-Bearer` |
-| Basic | `basic="KEY"` | `X-AS-Inject-Basic` |
-| Header | `header={"X-Api-Key": "KEY"}` | `X-AS-Inject-Header-X-Api-Key` |
-| Query | `query={"key": "KEY"}` | `X-AS-Inject-Query-key` |
-| Body | `body_field={"path": "KEY"}` | `X-AS-Inject-Body-path` |
-| Form | `form_field={"key": "KEY"}` | `X-AS-Inject-Form-key` |
+## Authenticated API Calls
 
-## Async Support
+Six injection styles — one for every auth pattern.
+
+```python
+# Bearer token — Stripe, OpenAI, GitHub, most modern APIs
+response = client.call(
+    "https://api.stripe.com/v1/balance",
+    bearer="STRIPE_KEY"
+)
+
+# Custom header — SendGrid, Twilio, API Gateway
+response = client.call(
+    "https://api.sendgrid.com/v3/mail/send",
+    method="POST",
+    body=email_payload,
+    header={"X-Api-Key": "SENDGRID_KEY"}
+)
+
+# Query parameter — Google Maps, weather APIs
+response = client.call(
+    "https://maps.googleapis.com/maps/api/geocode/json",
+    query={"key": "GMAP_KEY", "address": "Lagos, Nigeria"}
+)
+
+# Basic auth — Jira, legacy REST APIs
+# Store as "username:password" or "user@email.com:api_token"
+response = client.call(
+    "https://yourcompany.atlassian.net/rest/api/2/issue",
+    basic="JIRA_CREDS"
+)
+
+# JSON body injection
+response = client.call(
+    "https://api.example.com/oauth/token",
+    method="POST",
+    body={"grant_type": "client_credentials"},
+    body_field={"client_secret": "CLIENT_SECRET"}
+)
+
+# Form field injection
+response = client.call(
+    "https://oauth.example.com/token",
+    method="POST",
+    form_field={"api_key": "API_KEY"}
+)
+```
+
+Combine multiple injection styles in one call:
+
+```python
+response = client.call(
+    "https://api.example.com/data",
+    bearer="AUTH_TOKEN",
+    header={"X-Org-ID": "ORG_SECRET"},
+    query={"version": "API_VERSION"}
+)
+```
+
+### Auth Styles Reference
+
+| Style | Parameter | Injects as |
+|---|---|---|
+| Bearer | `bearer="KEY"` | `Authorization: Bearer <value>` |
+| Basic | `basic="KEY"` | `Authorization: Basic base64(<value>)` |
+| Custom header | `header={"X-Api-Key": "KEY"}` | `X-Api-Key: <value>` |
+| Query param | `query={"key": "KEY"}` | `?key=<value>` |
+| JSON body | `body_field={"path": "KEY"}` | `{"path": "<value>"}` |
+| Form field | `form_field={"field": "KEY"}` | `field=<value>` |
+
+### The Response Object
+
+```python
+response = client.call("https://api.stripe.com/v1/balance", bearer="STRIPE_KEY")
+
+response.status_code    # int — HTTP status from upstream API
+response.body           # str — raw response body
+response.json()         # dict — parsed JSON (raises if not valid JSON)
+response.headers        # dict — response headers from upstream API
+response.redacted       # bool — True if an echoed credential was redacted
+response.duration_ms    # int — round-trip duration in milliseconds
+```
+
+Note: `response` has no field containing the injected credential value. This is structural.
+
+---
+
+## Async
 
 ```python
 response = await client.async_call(
     "https://api.openai.com/v1/models",
-    bearer="OPENAI_KEY",
+    bearer="OPENAI_KEY"
 )
 ```
 
+Every `call()` parameter is supported in `async_call()`.
+
+---
+
 ## Process Spawning
 
+Spawn any process with secrets from the active project injected as environment variables at launch. The calling code never sees the values. When the process exits, the secrets are gone.
+
 ```python
-result = client.spawn(["node", "server.js"])
-print(result.exit_code)
+# Wrap the Stripe MCP server
+result = client.spawn("stripe", ["mcp"])
+
+# Wrap a Node.js server
+result = client.spawn("node", ["server.js"])
+
+# Use secrets from a specific project without a global switch
+result = client.spawn("python", ["manage.py", "migrate"], project="payments-service")
+
+# Run in background — returns immediately
+proc = client.spawn_async("stripe", ["mcp"])
+
+# Capture output for scripting or testing
+result = client.spawn("python", ["manage.py", "test"], capture=True)
+if result.exit_code != 0:
+    print(result.stderr)
 ```
+
+`spawn()` result fields: `exit_code`, `stdout` (if `capture=True`), `stderr` (if `capture=True`).
+
+---
 
 ## Management
 
+Full programmatic access to everything the CLI does.
+
+### Status
+
 ```python
-client.secrets.list()
-client.secrets.set("API_KEY", "value")
-client.workspaces.list()
-client.proxy.status()
-client.allowlist.add("api.stripe.com")
+status = client.status()
+# status.user_email, status.workspace_name, status.project_name
+# status.last_pull, status.proxy_running, status.storage_mode
 ```
 
+### Secrets
+
+```python
+keys = client.secrets.list()         # key names only — never values
+client.secrets.set("KEY", value)     # provision a secret programmatically
+client.secrets.delete("KEY")
+
+diff = client.secrets.diff()
+# diff.has_drift, diff.local_only, diff.remote_only, diff.out_of_sync
+
+if diff.has_drift:
+    client.secrets.sync()            # pull cloud state to keychain
+
+client.secrets.push()                # upload local secrets to cloud (encrypted)
+```
+
+### Workspaces
+
+```python
+client.workspaces.list()
+client.workspaces.create("Acme Engineering")
+client.set_workspace("Acme Engineering")      # global switch
+client.workspaces.invite("alice@acme.com", role="member")
+client.workspaces.members()
+```
+
+**Scoped workspace context** — global state unchanged after exit:
+
+```python
+# Useful for multi-tenant tools operating across multiple workspaces
+with client.workspace("Client A") as ws:
+    response = ws.call("https://api.stripe.com/v1/balance", bearer="STRIPE_KEY")
+
+with client.workspace("Client B") as ws:
+    response = ws.call("https://api.stripe.com/v1/balance", bearer="STRIPE_KEY")
+```
+
+### Projects
+
+```python
+client.projects.list()
+client.projects.create("payments-service")
+client.set_project("payments-service")        # global switch
+
+# Scoped project context
+with client.project("payments-service") as proj:
+    result = proj.spawn("python", ["manage.py", "migrate"])
+```
+
+### Domain Allowlist
+
+```python
+client.allowlist.list()
+client.allowlist.add("api.stripe.com")
+client.allowlist.add(["api.stripe.com", "api.openai.com"])   # multiple at once
+client.allowlist.remove("api.stripe.com")
+client.allowlist.log(last=20)
+```
+
+Note: `allowlist.add()` and `allowlist.remove()` require admin role and prompt for password verification. They cannot be called in non-interactive environments.
+
+### Proxy and Audit Log
+
+```python
+client.proxy.start()
+client.proxy.stop()
+client.proxy.status()    # running, port, session_valid, uptime_seconds
+
+logs = client.proxy.logs(last=10)
+for event in logs:
+    print(event.timestamp, event.method, event.target_url, event.status_code)
+
+# Filter by status or secret key
+blocked = client.proxy.logs(last=50, status="BLOCKED")
+stripe_calls = client.proxy.logs(secret="STRIPE_KEY")
+```
+
+Every `AuditEvent` contains timestamps, key names, endpoints, and status codes. The struct has no value field — it is structurally impossible for a credential value to appear in any log entry.
+
+---
+
+## Configuration
+
+```python
+from agentsecrets import AgentSecrets
+
+client = AgentSecrets()                                       # default
+client = AgentSecrets(port=9000)                              # custom proxy port
+client = AgentSecrets(workspace="Acme", project="payments")   # explicit context
+client = AgentSecrets(auto_start=False)                       # no proxy auto-start
+```
+
+Environment variables read automatically — no constructor argument needed:
+
+```bash
+AGENTSECRETS_TOKEN=as_tok_live_abc123    # service token (CI/CD, production servers)
+AGENTSECRETS_PORT=9000                   # override proxy port
+AGENTSECRETS_WORKSPACE=Acme             # override active workspace
+AGENTSECRETS_PROJECT=payments            # override active project
+```
+
+---
+
+## CI/CD and Production
+
+On machines where you cannot run the CLI interactively — CI/CD pipelines, production servers, Docker containers — use a service token instead of the local proxy.
+
+Generate a token once from the CLI:
+
+```bash
+agentsecrets token create --name "github-actions" --ttl 90d
+# as_tok_live_K7mNpQ3x...  (shown once, store it immediately)
+```
+
+Set it as an environment variable in your environment:
+
+```bash
+# GitHub Actions secret, server environment, Docker run flag, etc.
+AGENTSECRETS_TOKEN=as_tok_live_K7mNpQ3x...
+```
+
+The SDK detects the token automatically. No other configuration needed. Your application code is unchanged.
+
+The token grants the ability to make the proxy inject credentials. It does not grant the ability to retrieve credential values. The zero-knowledge guarantee holds in CI/CD exactly as it does locally.
+
+**Where this works today:** Persistent servers (VPS, dedicated), GitHub Actions, CI runners with a persistent OS, Docker containers with the token set.
+
+**Coming soon:** Serverless environments (Lambda, Vercel, Cloudflare Workers) — requires the cloud resolver, currently on the roadmap.
+
+---
+
+## Error Handling
+
+Every error tells you what happened and what to do.
+
+```python
+from agentsecrets import (
+    AgentSecrets,
+    AgentSecretsNotRunning,
+    DomainNotAllowed,
+    SecretNotFound,
+    UpstreamError,
+)
+
+try:
+    response = client.call(
+        "https://api.stripe.com/v1/balance",
+        bearer="STRIPE_KEY"
+    )
+except AgentSecretsNotRunning:
+    # Proxy not running and no AGENTSECRETS_TOKEN set
+    # Error message includes full install and setup instructions
+    raise
+except DomainNotAllowed as e:
+    print(f"Run: agentsecrets workspace allowlist add {e.domain}")
+except SecretNotFound as e:
+    print(f"Run: agentsecrets secrets set {e.key}=<value>")
+except UpstreamError as e:
+    # Injection succeeded — the upstream API itself returned an error
+    print(f"API returned {e.status_code}: {e.body}")
+```
+
+| Exception | Cause | Recovery |
+|---|---|---|
+| `AgentSecretsNotRunning` | No proxy, no token | `agentsecrets proxy start` or set `AGENTSECRETS_TOKEN` |
+| `DomainNotAllowed` | Domain not on workspace allowlist | `agentsecrets workspace allowlist add <domain>` |
+| `SecretNotFound` | Key not in active project | `agentsecrets secrets set <KEY>=<value>` |
+| `ProxyConnectionError` | Proxy running but unreachable | `agentsecrets proxy status` |
+| `SessionExpired` | Session TTL expired | `agentsecrets login` |
+| `UpstreamError` | Upstream API error (injection succeeded) | Check upstream API docs |
+| `PermissionDenied` | Insufficient workspace role | Contact workspace admin |
+| `WorkspaceNotFound` | Workspace does not exist | Check workspace name |
+| `ProjectNotFound` | Project does not exist | Check project name |
+
+All exceptions extend `AgentSecretsError`.
+
+---
+
 ## Testing
+
+Test without a running proxy and without real credentials.
 
 ```python
 from agentsecrets.testing import MockAgentSecrets
 
-mock = MockAgentSecrets()
-response = mock.call("https://api.stripe.com", bearer="KEY")
+mock = MockAgentSecrets(secrets={"STRIPE_KEY": "sk_test_mock"})
 
-assert len(mock.calls) == 1
-assert mock.calls[0].bearer == "KEY"  # Key name recorded, never the value.
+response = mock.call(
+    "https://api.stripe.com/v1/balance",
+    bearer="STRIPE_KEY"
+)
+
+# Assert the right call was made
+assert mock.calls[0].url == "https://api.stripe.com/v1/balance"
+assert mock.calls[0].bearer == "STRIPE_KEY"
+
+# mock.calls[0].value does not exist
+# The zero-knowledge guarantee is structural, not conditional — even in test mode
 ```
+
+---
 
 ## Development
 
 ```bash
-cd python
+git clone https://github.com/The-17/agentsecrets-sdk
+cd agentsecrets-sdk/python
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -v
 ```
 
-## License
+---
 
-MIT — [The Seventeen](https://github.com/The-17)
+## Links
+
+- **AgentSecrets CLI**: [github.com/The-17/agentsecrets](https://github.com/The-17/agentsecrets)
+- **SDK repo**: [github.com/The-17/agentsecrets-sdk](https://github.com/The-17/agentsecrets-sdk)
+- **ClawHub**: [clawhub.ai/SteppaCodes/agentsecrets](https://clawhub.ai/SteppaCodes/agentsecrets)
+- **Security**: hello@theseventeen.co
+
+---
+
+MIT License — [The Seventeen](https://github.com/The-17)
