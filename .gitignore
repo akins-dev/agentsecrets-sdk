@@ -131,3 +131,6 @@ temp/
 
 # ----- Local Learning Notes (not for publication) -----
 learning/
+
+# Agentsecrets SDK specific
+.agentsecrets/
