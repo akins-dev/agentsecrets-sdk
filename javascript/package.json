@@ -1,7 +1,7 @@
 {
   "name": "@the-17/agentsecrets-sdk",
   "version": "0.1.0",
-  "description": "JavaScript/TypeScript SDK for AgentSecrets \u2014 zero-knowledge secrets infrastructure for AI agents",
+  "description": "JavaScript/TypeScript SDK for AgentSecrets — zero-knowledge secrets infrastructure for AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,7 +27,7 @@
     "lint": "eslint src tests",
     "typecheck": "tsc --project tsconfig.dev.json",
     "prepublishOnly": "npm run build && npm test",
-    "test:integration": "node --experimental-strip-types tests/integration/integration.test.ts",
+    "test:integration": "node --experimental-strip-types --experimental-transform-types tests/integration/integration.test.ts",
     "test:all": "npm test && npm run test:integration"
   },
   "engines": {
@@ -53,7 +53,7 @@
   },
   "homepage": "https://github.com/The-17/agentsecrets-sdk/tree/main/javascript#readme",
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.5.0",
     "typescript": "^5.5.0"
   },
   "peerDependencies": {},

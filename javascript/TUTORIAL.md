@@ -21,7 +21,7 @@ Your code never holds the token. It only ever holds the key name.
 
 ## Step 1 — Install the CLI
 
-The CLI manages your secrets and runs the local proxy. Install it once.
+The CLI manages your secrets and runs the local proxy. Full docs at [github.com/The-17/agentsecrets](https://github.com/The-17/agentsecrets).
 
 ```bash
 # Pick one
@@ -38,15 +38,22 @@ agentsecrets --version
 
 ---
 
-## Step 2 — Create Your Account and First Project
+## Step 2 — Create Your Account, Workspace, and Project
 
 ```bash
 agentsecrets init
 ```
 
-This creates your account, sets up the OS keychain integration, and creates a default workspace. Follow the prompts.
+This creates your account and sets up the OS keychain integration. Follow the prompts.
 
-Then create a project for this tutorial:
+If `init` didn't create a workspace, or you want a fresh one for this tutorial:
+
+```bash
+# Skip if you already have a workspace
+agentsecrets workspace create my-workspace
+```
+
+Then create a project:
 
 ```bash
 agentsecrets project create tutorial-app
@@ -73,7 +80,7 @@ agentsecrets secrets list
 
 ## Step 4 — Start the Proxy
 
-The proxy is a local HTTP server that intercepts your SDK calls and injects credentials.
+The proxy is a local HTTP server. Your SDK sends requests to it with `X-AS-*` headers describing which secret to inject; the proxy resolves the real value from your OS keychain and forwards the authenticated request to the target API.
 
 ```bash
 agentsecrets proxy start
@@ -274,8 +281,38 @@ node --test --experimental-strip-types my-function.test.ts
 
 - **Multiple auth styles** — custom headers, query params, basic auth, body fields: see the [README](./README.md#full-working-example)
 - **Multiple environments** — use `client.withWorkspace("production", ...)` to switch contexts
-- **Subprocess credential injection** — use `client.spawn()` when a CLI tool needs the credential
+- **One-shot CLI calls** — use `client.spawn()` to forward flags directly to `agentsecrets call` from code
 - **Proxy protocol** — building an SDK in another language? See the proxy header spec in the README
+
+---
+
+## Running the Integration Tests
+
+The integration tests verify the full stack against a real proxy. Run them before opening a PR.
+
+**Prerequisites:**
+
+```bash
+# Ensure CLI is installed and initialized — see Step 1 and Step 2 above
+# or the full CLI docs at https://github.com/The-17/agentsecrets
+
+# If you don't have a project yet:
+agentsecrets project create test
+
+agentsecrets secrets set TEST_KEY=any-value       # value doesn't matter
+agentsecrets workspace allowlist add httpbin.org  # used as a safe echo target
+agentsecrets proxy start
+```
+
+No specific workspace or project name required — the tests use whatever is currently active.
+
+**Run:**
+
+```bash
+node --experimental-strip-types tests/integration/integration.test.ts
+```
+
+Individual sections skip gracefully if prerequisites aren't met — you'll see `○ skipped` lines for anything that needs the proxy or a live secret.
 
 ---
 
@@ -290,4 +327,3 @@ node --test --experimental-strip-types my-function.test.ts
 **`ERR_MODULE_NOT_FOUND` for `.js` files** — You're running source files directly with `--experimental-strip-types`. Use `.ts` extensions in imports, not `.js`.
 
 **`Cannot find module 'node:test'`** — Run `npm install` to install `@types/node`.
-

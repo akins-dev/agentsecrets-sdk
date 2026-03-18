@@ -23,24 +23,30 @@ No `.env` files. No `process.env`. No `vault.get()`. Just: make the call.
 
 ## Prerequisites
 
-Install the AgentSecrets CLI and start the proxy before using the SDK.
+You need the AgentSecrets CLI installed and a proxy running before using this SDK.
+Full setup guide: [github.com/The-17/agentsecrets](https://github.com/The-17/agentsecrets)
 
 ```bash
-# Install CLI (pick one)
+# 1. Install the CLI (pick one)
 pip install agentsecrets
 npm install -g @the-17/agentsecrets
 curl -sSL https://get.agentsecrets.com | sh
 
-# First-time setup
+# 2. Create your account (first time only)
 agentsecrets init
+
+# 3. Create a workspace if you don't have one, or skip if one already exists
+agentsecrets workspace create my-workspace
+
+# 4. Create a project
 agentsecrets project create my-app
 
-# Add your secrets (the one time values enter your terminal)
+# 5. Add your secrets (the one time values enter your terminal)
 agentsecrets secrets set STRIPE_KEY=sk_live_...
-agentsecrets secrets set OPENAI_KEY=sk-...
+agentsecrets secrets set OPENAI_KEY=sk-proj-...
 agentsecrets secrets set GITHUB_TOKEN=ghp_...
 
-# Start the proxy (keep this running)
+# 6. Start the proxy (keep this running in a separate terminal)
 agentsecrets proxy start
 # → Proxy running at localhost:8765
 ```
@@ -272,36 +278,28 @@ const slowCall = await client.call({
 });
 
 
-// ── 14. Spawn a subprocess with credential injection ──────────────────────────
+// ── 14. One-shot CLI call via spawn() ────────────────────────────────────────
 //
-// spawn() runs a separate program with the credential injected into that
-// program's own environment. Use it when a CLI tool, deploy script, or binary
-// needs a credential — not your TypeScript code.
-//
-// Security model:
-//   Your TypeScript process never holds the value. The AgentSecrets CLI reads
-//   the key from the OS keychain and injects it directly into the child process
-//   at the OS fork level. The child has the value in its own isolated
-//   environment — it cannot flow back to your process, and your process
-//   never had it to begin with.
-//
-//   Your process (no value) → CLI (reads keychain) → child process (has value)
-//
-// The child having the value in its environment is the intended behaviour —
-// that is how CLI tools read credentials. The isolation guarantee is that YOUR
-// process is the one that never holds it.
+// spawn() wraps `agentsecrets call` directly, passing your command array as
+// CLI flags. The CLI resolves credentials from the OS keychain without ever
+// exposing the values. Prefer client.call() for most use cases — spawn() is
+// for scripting contexts or when you need the raw CLI output.
 
+// Equivalent to: agentsecrets call --url https://api.stripe.com/v1/balance --bearer STRIPE_KEY
 const curlResult = await client.spawn({
-  command: ["curl", "-s", "https://api.stripe.com/v1/balance"],
-  // The CLI injects STRIPE_KEY into curl's environment before it starts
+  command: ["--url", "https://api.stripe.com/v1/balance", "--bearer", "STRIPE_KEY"],
 });
 console.log(curlResult.exitCode); // 0
 console.log(curlResult.stdout);   // Stripe JSON response
 
-const deployResult = await client.spawn({
-  command: ["./deploy.sh", "--env", "production"],
-  // env is for NON-SECRET config only — never pass credential values here
-  env: { NODE_ENV: "production", REGION: "us-east-1" },
+// POST with body via CLI
+const postResult = await client.spawn({
+  command: [
+    "--url", "https://api.openai.com/v1/chat/completions",
+    "--method", "POST",
+    "--bearer", "OPENAI_KEY",
+    "--body", JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Hi" }] }),
+  ],
 });
 
 
@@ -423,13 +421,21 @@ const res = await client.call({ url: "...", bearer: "KEY" });
 
 ### `client.spawn(opts): Promise<SpawnResult>`
 
-Runs a child process. The credential is injected into the child's environment by the AgentSecrets CLI at the OS fork level — your TypeScript process never holds the value.
+A thin wrapper around `agentsecrets call` — passes your command array directly as flags to the CLI. The CLI resolves credentials from the OS keychain and injects them into the request without ever exposing the values.
 
-Use `spawn()` when a CLI tool, script, or binary needs a credential in its environment. Use `call()` when your TypeScript code is making the HTTP request directly.
+For most use cases, prefer `client.call()` which handles flag construction automatically. `spawn()` is useful in scripting contexts or when you need the raw CLI output.
+
+```typescript
+// Equivalent to: agentsecrets call --url https://api.stripe.com/v1/balance --bearer STRIPE_KEY
+const result = await client.spawn({
+  command: ["--url", "https://api.stripe.com/v1/balance", "--bearer", "STRIPE_KEY"],
+});
+console.log(result.stdout); // Stripe JSON response
+```
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `command` | `string[]` | ✅ | Command and arguments |
+| `command` | `string[]` | ✅ | Flags forwarded to `agentsecrets call` (e.g. `["--url", "...", "--bearer", "KEY"]`) |
 | `capture` | `boolean` | — | Capture stdout/stderr. Default: `true` |
 | `timeout` | `number` | — | Timeout in ms |
 
@@ -451,7 +457,7 @@ Same pattern for projects.
 
 ### `client.isProxyRunning(): Promise<boolean>`
 
-Hits `localhost:{port}/health`. Returns `true` if the proxy responds.
+Runs `agentsecrets proxy status` and returns `true` if the exit code is 0.
 
 ### `client.proxyStatus(): Promise<ProxyStatus>`
 
@@ -554,17 +560,29 @@ Typecheck everything (src + tests + examples):
 npx tsc --project tsconfig.dev.json
 ```
 
-Integration tests (requires live proxy — see prerequisites in the test file):
+Integration tests — run manually against a live proxy before opening a PR.
+
+**Prerequisites:**
 
 ```bash
-npm run test:integration
+# Ensure the CLI is installed and initialized — see Prerequisites above
+# or the CLI docs at https://github.com/The-17/agentsecrets
+
+# If you don't have a project yet:
+agentsecrets project create test
+
+agentsecrets secrets set TEST_KEY=any-value       # value doesn't matter
+agentsecrets workspace allowlist add httpbin.org  # used as a safe echo target
+agentsecrets proxy start
 ```
 
-Run everything:
+No specific workspace or project name is required — the test uses whatever is currently active.
 
 ```bash
-npm run test:all
+node --experimental-strip-types tests/integration/integration.test.ts
 ```
+
+Individual sections skip gracefully if prerequisites aren't met.
 
 ---
 
@@ -574,8 +592,10 @@ End-to-end scripts that verify the SDK works against real APIs with a live proxy
 
 **Setup:**
 
+Make sure you have the AgentSecrets CLI installed and initialized — see the [Prerequisites](#prerequisites) section above or the [CLI docs](https://github.com/The-17/agentsecrets).
+
 ```bash
-agentsecrets init
+# If you haven't already: agentsecrets init → workspace create → project create
 agentsecrets secrets set STRIPE_KEY=sk_live_...
 agentsecrets secrets set OPENAI_KEY=sk-proj-...
 agentsecrets secrets set GITHUB_TOKEN=ghp_...
