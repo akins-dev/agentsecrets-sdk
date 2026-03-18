@@ -9,8 +9,8 @@ import type { CallOptions } from "./types.js";
 
 export const DEFAULT_PORT = 8765;
 export const PROXY_PATH = "/proxy";
-/** TODO: confirm /health endpoint exists — sourced from Python SDK proxy.py, not yet verified against CLI */
-export const HEALTH_PATH = "/health";
+/** /health not used — health check uses `agentsecrets proxy status` CLI command instead */
+export const HEALTH_PATH = "/health"; // kept for reference, not used in SDK
 
 export const PROXY_HEADERS = {
   TARGET_URL: "X-AS-Target-URL",

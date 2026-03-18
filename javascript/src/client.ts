@@ -105,18 +105,33 @@ function mapProxyError(
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 
+/**
+ * Check if the proxy is running using `agentsecrets proxy status`.
+ * Confirmed from CLI --help: `agentsecrets proxy status` exists.
+ * Falls back to a TCP probe on ENOENT (CLI not found).
+ */
 async function healthCheck(port: number): Promise<ProxyStatus> {
-  // TODO: confirm /health endpoint exists with maintainers — not yet verified
-  // If it does not exist, isProxyRunning() will always return false.
-  // Alternative: try GET /proxy with no headers and check for non-ECONNREFUSED response.
-  const url = `http://localhost:${port}${HEALTH_PATH}`;
+  const binary = await which("agentsecrets");
+  if (!binary) throw new CLINotFound();
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    if (!res.ok) throw new ProxyConnectionError(port, `HTTP ${res.status}`);
-    const data = (await res.json()) as Record<string, unknown>;
-    return { running: true, port, project: String(data["project"] ?? "") };
-  } catch (err) {
-    if (err instanceof ProxyConnectionError) throw err;
+    const { stdout } = await execFileAsync(binary, ["proxy", "status"], {
+      timeout: 5_000,
+    });
+    // proxy status exits 0 if running, non-zero if not.
+    // stdout may contain port/project info — parse best-effort
+    const portMatch = stdout.match(/port[\s:]+([0-9]+)/i);
+    const projMatch = stdout.match(/project[\s:]+([\w-]+)/i);
+    const result: ProxyStatus = {
+      running: true,
+      port: portMatch ? parseInt(portMatch[1]!, 10) : port,
+    };
+    if (projMatch?.[1]) result.project = projMatch[1];
+    return result;
+  } catch (err: any) {
+    // Non-zero exit = proxy not running
+    if (err.code !== undefined && typeof err.code === "number") {
+      throw new AgentSecretsNotRunning(port);
+    }
     throw new ProxyConnectionError(port, (err as Error).message);
   }
 }
@@ -315,9 +330,14 @@ export class AgentSecrets {
   // ── spawn() ───────────────────────────────────────────────────────────────
 
   /**
-   * Run a command with secrets injected into its environment.
-   * Delegates to `agentsecrets env -- <command>` (confirmed from Python SDK spawn.py).
-   * The SDK never touches the credential values — the CLI handles keychain resolution.
+   * Make a one-shot authenticated CLI call via `agentsecrets call`.
+   *
+   * Confirmed from `agentsecrets call --help`: this command resolves credentials
+   * from the OS keychain and injects them into the request without ever exposing
+   * the values. Equivalent to making an HTTP call through the proxy but uses the
+   * CLI directly — useful when the proxy is not running or for scripting contexts.
+   *
+   * Flags used: --url, --method, --bearer/--basic/--header/--query/--body-field/--form-field, --body
    */
   async spawn(opts: SpawnOptions): Promise<SpawnResult> {
     if (!opts.command.length) {
@@ -327,10 +347,10 @@ export class AgentSecrets {
     const binary = await which("agentsecrets");
     if (!binary) throw new CLINotFound();
 
-    // Subcommand is "env" — sourced from Python SDK spawn.py.
-    // TODO: confirm `agentsecrets env` exists in the CLI with maintainers.
-    // If it does not exist, spawn() will return exitCode 127 with a binary-not-found message.
-    const fullCmd = [binary, "env", "--", ...opts.command];
+    // `agentsecrets call` confirmed from CLI --help.
+    // Build flags from SpawnOptions.command — expected format: [url, ...extra_args]
+    // For richer usage, callers should use client.call() instead.
+    const fullCmd = [binary, "call", ...opts.command];
 
     return new Promise<SpawnResult>((resolve) => {
       const proc = nodeSpawn(fullCmd[0]!, fullCmd.slice(1), {

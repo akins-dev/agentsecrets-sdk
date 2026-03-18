@@ -75,9 +75,9 @@ export class AgentSecretsResponse<T = unknown> {
       const preview = this.text.slice(0, 120).split("\n").join(" ");
       throw new SyntaxError(
         `AgentSecretsResponse.json() failed: response is not valid JSON.\n` +
-        `Status: ${this.statusCode}  Content-Type: ${this.headers["content-type"] ?? "unknown"}\n` +
-        `Body preview: ${preview}\n` +
-        `Use response.text to inspect the raw response.`
+          `Status: ${this.statusCode}  Content-Type: ${this.headers["content-type"] ?? "unknown"}\n` +
+          `Body preview: ${preview}\n` +
+          `Use response.text to inspect the raw response.`,
       );
     }
   }
@@ -87,9 +87,12 @@ export class AgentSecretsResponse<T = unknown> {
 
 export interface SpawnOptions {
   /**
-   * Command and arguments to run.
-   * The AgentSecrets CLI injects ALL secrets for the active project
-   * via `agentsecrets env -- <command>`. No auth style is needed here.
+   * Arguments forwarded directly to `agentsecrets call`.
+   * Confirmed from `agentsecrets call --help`: use flags like
+   * ["--url", "https://...", "--bearer", "KEY_NAME", "--method", "POST"]
+   *
+   * For most use cases, prefer client.call() which handles flag construction
+   * automatically. spawn() is for scripting contexts or when the proxy is not running.
    */
   command: string[];
   /** Whether to capture stdout/stderr. Default: true */
@@ -167,7 +170,9 @@ export class CLIError extends AgentSecretsError {
   readonly exitCode: number;
   readonly stderr: string;
   constructor(command: string, exitCode: number, stderr: string) {
-    super(`CLI command failed (exit ${exitCode}): agentsecrets ${command}\n${stderr}`);
+    super(
+      `CLI command failed (exit ${exitCode}): agentsecrets ${command}\n${stderr}`,
+    );
     this.name = "CLIError";
     this.command = command;
     this.exitCode = exitCode;
@@ -224,7 +229,10 @@ export class UpstreamError extends AgentSecretsError {
 }
 
 export class PermissionDenied extends AgentSecretsError {
-  constructor(operation: string, opts?: { requiredRole?: string; currentRole?: string }) {
+  constructor(
+    operation: string,
+    opts?: { requiredRole?: string; currentRole?: string },
+  ) {
     const parts = [`Permission denied for '${operation}'.`];
     if (opts?.requiredRole) parts.push(`Required: ${opts.requiredRole}.`);
     if (opts?.currentRole) parts.push(`Current: ${opts.currentRole}.`);
@@ -235,7 +243,9 @@ export class PermissionDenied extends AgentSecretsError {
 
 export class WorkspaceNotFound extends AgentSecretsError {
   constructor(name: string) {
-    super(`Workspace '${name}' not found.`, { fixHint: "agentsecrets workspace list" });
+    super(`Workspace '${name}' not found.`, {
+      fixHint: "agentsecrets workspace list",
+    });
     this.name = "WorkspaceNotFound";
   }
 }
@@ -243,7 +253,9 @@ export class WorkspaceNotFound extends AgentSecretsError {
 export class ProjectNotFound extends AgentSecretsError {
   constructor(name: string, workspace?: string) {
     const ctx = workspace ? ` in workspace '${workspace}'` : "";
-    super(`Project '${name}' not found${ctx}.`, { fixHint: "agentsecrets project list" });
+    super(`Project '${name}' not found${ctx}.`, {
+      fixHint: "agentsecrets project list",
+    });
     this.name = "ProjectNotFound";
   }
 }
