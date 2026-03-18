@@ -1,0 +1,61 @@
+{
+  "name": "@the-17/agentsecrets-sdk",
+  "version": "0.1.0",
+  "description": "JavaScript/TypeScript SDK for AgentSecrets \u2014 zero-knowledge secrets infrastructure for AI agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/testing/mock.js",
+      "types": "./dist/testing/mock.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "node --test --experimental-strip-types tests/unit/proxy.test.ts",
+    "test:coverage": "node --test --experimental-strip-types --experimental-test-coverage tests/unit/proxy.test.ts",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --project tsconfig.dev.json",
+    "prepublishOnly": "npm run build && npm test",
+    "test:integration": "node --experimental-strip-types tests/integration/integration.test.ts",
+    "test:all": "npm test && npm run test:integration"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "agentsecrets",
+    "zero-knowledge",
+    "secrets-management",
+    "ai-agents",
+    "mcp",
+    "sdk"
+  ],
+  "author": "The Seventeen <hello@theseventeen.co>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-17/agentsecrets-sdk.git",
+    "directory": "javascript"
+  },
+  "bugs": {
+    "url": "https://github.com/The-17/agentsecrets-sdk/issues"
+  },
+  "homepage": "https://github.com/The-17/agentsecrets-sdk/tree/main/javascript#readme",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {},
+  "peerDependenciesMeta": {}
+}
